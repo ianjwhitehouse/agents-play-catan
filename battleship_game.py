@@ -121,8 +121,9 @@ def did_strike_hit(x, y, ships):
     return False, None
 
 # Load model
-# LLM = LLM(model="meta-llama/Meta-Llama-3-8B", tensor_parallel_size=2)
-LLM = LLM(model="lucyknada/microsoft_WizardLM-2-7B", tensor_parallel_size=2)
+LLM = LLM(model="meta-llama/Meta-Llama-3-8B", tensor_parallel_size=2)
+# LLM = LLM(model="lucyknada/microsoft_WizardLM-2-7B", tensor_parallel_size=2)
+# LLM = LLM(model="julep-ai/dolphin-2.9-llama3-70b-awq", tensor_parallel_size=2, max_model_len=2048, enforce_eager=True) #, gpu_memory_utilization=0.95, max_num_seqs=1, enforce_eager=True)
 
 if __name__ == "__main__":
     # Setup game
