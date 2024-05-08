@@ -218,7 +218,7 @@ if __name__ == "__main__":
     model_id = "casperhansen/llama-3-70b-instruct-awq" # meta-llama/Meta-Llama-3-8B-Instruct" # ""
     
     tokenizer = AutoTokenizer.from_pretrained(model_id)
-    LLM = LLM(model=model_id, tensor_parallel_size=2, max_model_len=3124, gpu_memory_utilization=0.9, swap_space=80, max_num_seqs=1)
+    LLM = LLM(model=model_id, tensor_parallel_size=2, max_model_len=3124, gpu_memory_utilization=0.9, swap_space=80) #, max_num_seqs=1)
     
     terminators = [
         tokenizer.eos_token_id,
