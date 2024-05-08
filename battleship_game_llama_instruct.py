@@ -6,17 +6,6 @@ from random import choice
 import accelerate
 from pickle import dump
 
-# Open Llama 3 8B
-model_id = "casperhansen/llama-3-70b-instruct-awq" # "meta-llama/Meta-Llama-3-8B-Instruct"
-
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-LLM = LLM(model=model_id, tensor_parallel_size=2, max_model_len=3124, gpu_memory_utilization=0.9, swap_space=64)
-
-terminators = [
-    tokenizer.eos_token_id,
-    # tokenizer.convert_tokens_to_ids("<|eot_id|>")
-]
-
 # Define game classes
 class Ship:
     def __init__(self, length, board_size):
@@ -88,7 +77,7 @@ class AgentPrompter:
 
         # Get attack from LLM
         else:
-            sampling_params = SamplingParams(n=64, max_tokens=8192, stop_token_ids=terminators, temperature=0.75, top_p=0.85)
+            sampling_params = SamplingParams(n=64, max_tokens=8192, stop_token_ids=terminators, temperature=0.5, top_p=0.8)
             prompt = tokenizer.apply_chat_template(
                 game_messages, 
                 tokenize=False, 
@@ -225,26 +214,27 @@ class AgentPrompter:
 
 
 if __name__ == "__main__":
+    # Open Llama 3 8B
+    model_id = "casperhansen/llama-3-70b-instruct-awq" # meta-llama/Meta-Llama-3-8B-Instruct" # ""
+    
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    LLM = LLM(model=model_id, tensor_parallel_size=2, max_model_len=3124, gpu_memory_utilization=0.9, swap_space=80, max_num_seqs=1)
+    
+    terminators = [
+        tokenizer.eos_token_id,
+        # tokenizer.convert_tokens_to_ids("<|eot_id|>")
+    ]
+    
     for i in range(5):
-        try:
-            player_one = AgentPrompter("angrily", 7)
-            player_two = AgentPrompter("calmly", 7)
-            player_one.set_opponent(player_two)
-            player_two.set_opponent(player_one)
-            player_one.prompt_next_move()
-            dump((player_one, player_two), open("%d_1.pkl" % i, "wb"))
-        except Error:
-            pass
-
         try:
             player_one = AgentPrompter("timidly", 7)
             player_two = AgentPrompter("confidently", 7)
             player_one.set_opponent(player_two)
             player_two.set_opponent(player_one)
             player_one.prompt_next_move()
-            dump((player_one, player_two), open("%d_2.pkl" % i, "wb"))
-        except Error:
-            pass
+            dump((player_one, player_two), open("%d_2.pkl" % i + 1, "wb"))
+        except Exception:
+            print(Exception)
 
         try:
             player_one = AgentPrompter("stupidly", 7)
@@ -252,6 +242,16 @@ if __name__ == "__main__":
             player_one.set_opponent(player_two)
             player_two.set_opponent(player_one)
             player_one.prompt_next_move()
-            dump((player_one, player_two), open("%d_3.pkl" % i, "wb"))
-        except Error:
-            pass
+            dump((player_one, player_two), open("%d_3.pkl" % i + 1, "wb"))
+        except Exception:
+            print(Exception)
+
+        try:
+            player_one = AgentPrompter("angrily", 7)
+            player_two = AgentPrompter("calmly", 7)
+            player_one.set_opponent(player_two)
+            player_two.set_opponent(player_one)
+            player_one.prompt_next_move()
+            dump((player_one, player_two), open("%d_1.pkl" % i + 1, "wb"))
+        except Exception:
+            print(Exception)
