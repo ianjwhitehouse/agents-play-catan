@@ -4,12 +4,13 @@ from transformers import AutoTokenizer
 from statistics import mode, StatisticsError
 from random import choice
 import accelerate
+from pickle import dump
 
 # Open Llama 3 8B
 model_id = "casperhansen/llama-3-70b-instruct-awq" # "meta-llama/Meta-Llama-3-8B-Instruct"
 
 tokenizer = AutoTokenizer.from_pretrained(model_id)
-LLM = LLM(model=model_id, tensor_parallel_size=2, max_model_len=2048, gpu_memory_utilization=0.9)
+LLM = LLM(model=model_id, tensor_parallel_size=2, max_model_len=3124, gpu_memory_utilization=0.9, swap_space=64)
 
 terminators = [
     tokenizer.eos_token_id,
@@ -63,7 +64,7 @@ class AgentPrompter:
         self.game_messages = [
             {
                 "role": "system",
-                "content": "You are an agent playing battleships against the user.  Your initial board looks like this (Your undamaged ships appear as O):\n%s\nYou cannot where your opponent's ships are until you hit them, but you can target his ships using the coordinates on this blank board:\n%s\n  When playing board games, you generally act very %s, which affects the moves you play." % (starting_board, self.draw_board(self.strikes, self.hits), self.agent_personality)
+                "content": "You are an agent playing battleships against the user.  Your initial board looks like this (Your undamaged ships appear as O):\n%s\nYou cannot where your opponent's ships are until you hit them, but you can target his ships using the coordinates on this blank board:\n%s\nWhen playing board games, you generally act very %s, which affects the moves you play." % (starting_board, self.draw_board(self.strikes, self.hits), self.agent_personality)
             }
         ]
         
@@ -78,7 +79,7 @@ class AgentPrompter:
         self.opponent = opponent
 
     def prompt_next_move(self):
-        game_messages = self.game_messages + [{"role": "system", "content": "Your board currently looks like this (The user's hits appear as X and your undamaged ships appear as O):\n%s\n and you have attacked the user's board here (your hits appear as X and your misses appear as O):\n%s\n.Where would you like to attack? Choose a number between 0 and %d that IS NOT in this list: %s.  Reply with ONLY a single number." % (self.draw_ships(), self.draw_board(self.strikes, self.hits), self.board_size ** 2 - 1, " or ".join([str(i) for i in self.already_attacked]))}]
+        game_messages = self.game_messages + [{"role": "system", "content": "This board shows where you have attacked the user's ships (your hits appear as X and your misses appear as O):\n%s\nIt is generally a good idea to attack near your previous successful hits, as they show that there is a ship in that area.  However, you should not just attack every spot in order because you must use logic and reasoning to decide which area to attack.  Where would you like to attack? Choose a number between 0 and %d that IS NOT in this list: %s.  You should respond with a single sentence of your reasoning BEFORE giving the number of the area that you want to attack." % (self.draw_board(self.strikes, self.hits), self.board_size ** 2 - 1, " or ".join([str(i) for i in self.already_attacked]))}]
 
         # Get attack from player
         if self.agent_personality == "player":
@@ -87,33 +88,39 @@ class AgentPrompter:
 
         # Get attack from LLM
         else:
-            sampling_params = SamplingParams(n=64, max_tokens=4096, stop_token_ids=terminators, temperature=0.6, top_p=0.9)
+            sampling_params = SamplingParams(n=64, max_tokens=8192, stop_token_ids=terminators, temperature=0.75, top_p=0.85)
             prompt = tokenizer.apply_chat_template(
                 game_messages, 
                 tokenize=False, 
                 add_generation_prompt=True
             ).replace("<|eot_id|>", "")
-            temp_prompt = prompt + "I will attack spot number"
+            temp_prompt = prompt # + "I will attack spot number"
             while True:
                 print(temp_prompt)
                 outputs = LLM.generate(temp_prompt, sampling_params)[0]
-                outputs = [output.text.strip().split(" ")[0].strip(" .,;!?") for output in outputs.outputs]
-                    
+                outputs = [[
+                    word.strip(" .,;!?").replace("#", "").replace(",", "").replace("", "") for word in output.text.strip().split(" ")
+                ] for output in outputs.outputs]
+                
+                print(outputs)
+                
                 int_outputs = []
-                for out in outputs:
+                for output in outputs:
                     try:
-                        out = out.replace("#", "").replace(",", "").replace("", "")
-                        out = int(out)
-                        if 0 <= out < self.board_size ** 2:
-                            int_outputs.append(out)
+                        for word in output[::-1]:
+                            if word.isnumeric():
+                                int_outputs.append(int(word))
+                                break
                     except ValueError:
                         pass
-
-                inp = mode(int_outputs)
-                if inp in self.already_attacked:
-                    temp_prompt = prompt + "Since I have already attacked %s, I will attack spot number" % " and ".join([str(i) for i in self.already_attacked])
-                else:
-                    break
+                try:
+                    inp = mode(int_outputs)
+                    if inp in self.already_attacked:
+                        temp_prompt = prompt + "Since I have already attacked %s," % " and ".join([str(i) for i in self.already_attacked])
+                    else:
+                        break
+                except StatisticsError:
+                    pass
 
         # Process attack
         self.already_attacked.append(inp)
@@ -150,7 +157,7 @@ class AgentPrompter:
 
         # Get chat message from LLM
         else:
-            sampling_params = SamplingParams(n=1, max_tokens=4096, stop_token_ids=terminators, temperature=0.6, top_p=0.9)
+            sampling_params = SamplingParams(n=1, max_tokens=512, stop_token_ids=terminators, temperature=0.6, top_p=0.9)
             prompt = tokenizer.apply_chat_template(
                 self.chat_messages, 
                 tokenize=False, 
@@ -218,9 +225,33 @@ class AgentPrompter:
 
 
 if __name__ == "__main__":
-    player_one = AgentPrompter("angrily", 7)
-    player_two = AgentPrompter("calmly", 7)
-    player_one.set_opponent(player_two)
-    player_two.set_opponent(player_one)
-    player_one.prompt_next_move()
-    
+    for i in range(5):
+        try:
+            player_one = AgentPrompter("angrily", 7)
+            player_two = AgentPrompter("calmly", 7)
+            player_one.set_opponent(player_two)
+            player_two.set_opponent(player_one)
+            player_one.prompt_next_move()
+            dump((player_one, player_two), open("%d_1.pkl" % i, "wb"))
+        except Error:
+            pass
+
+        try:
+            player_one = AgentPrompter("timidly", 7)
+            player_two = AgentPrompter("confidently", 7)
+            player_one.set_opponent(player_two)
+            player_two.set_opponent(player_one)
+            player_one.prompt_next_move()
+            dump((player_one, player_two), open("%d_2.pkl" % i, "wb"))
+        except Error:
+            pass
+
+        try:
+            player_one = AgentPrompter("stupidly", 7)
+            player_two = AgentPrompter("smartly", 7)
+            player_one.set_opponent(player_two)
+            player_two.set_opponent(player_one)
+            player_one.prompt_next_move()
+            dump((player_one, player_two), open("%d_3.pkl" % i, "wb"))
+        except Error:
+            pass
